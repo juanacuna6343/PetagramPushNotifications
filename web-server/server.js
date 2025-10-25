@@ -1,234 +1,200 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
-const bodyParser = require('body-parser');
-const Database = require('./database');
+const admin = require('firebase-admin');
+const path = require('path');
+const { createDatabase } = require('./database');
+
+const PORT = process.env.PORT || 3000;
+const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, 'db.sqlite');
+
+// Init DB
+const db = createDatabase(DB_PATH);
+
+// Init Firebase Admin (expects GOOGLE_APPLICATION_CREDENTIALS env var)
+try {
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault()
+  });
+  console.log('[FCM] Firebase Admin initialized');
+} catch (err) {
+  console.warn('[FCM] Firebase Admin not initialized. Set GOOGLE_APPLICATION_CREDENTIALS env var to your service account JSON.');
+}
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+app.use(cors());
+app.use(express.json());
 
-// Inicializar base de datos
-const database = new Database();
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, message: 'Petagram Push API up' });
+});
 
-// Middleware de seguridad
-app.use(helmet());
+// Device registration: { id_usuario_instagram, id_dispositivo }
+app.post('/api/devices/register', (req, res) => {
+  const { id_usuario_instagram, id_dispositivo } = req.body || {};
+  if (!id_usuario_instagram || !id_dispositivo) {
+    return res.status(400).json({ ok: false, error: 'Faltan campos: id_usuario_instagram, id_dispositivo' });
+  }
+  try {
+    db.insertOrUpdateDevice(id_usuario_instagram, id_dispositivo);
+    return res.json({ ok: true, message: 'Dispositivo registrado' });
+  } catch (err) {
+    console.error('Error registrando dispositivo', err);
+    return res.status(500).json({ ok: false, error: 'Error registrando dispositivo' });
+  }
+});
 
-// Configuración de CORS
-const corsOptions = {
-    origin: function (origin, callback) {
-        const allowedOrigins = process.env.ALLOWED_ORIGINS 
-            ? process.env.ALLOWED_ORIGINS.split(',') 
-            : ['http://localhost:3000'];
-        
-        // Permitir requests sin origin (mobile apps, Postman, etc.)
-        if (!origin) return callback(null, true);
-        
-        if (allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            callback(new Error('No permitido por CORS'));
-        }
-    },
-    credentials: true
-};
+// Like endpoint that stores and notifies: { id_foto_instagram, id_usuario_instagram, id_dispositivo? }
+app.post('/api/likes', async (req, res) => {
+  const { id_foto_instagram, id_usuario_instagram, id_dispositivo } = req.body || {};
+  if (!id_foto_instagram || !id_usuario_instagram) {
+    return res.status(400).json({ ok: false, error: 'Faltan campos: id_foto_instagram, id_usuario_instagram' });
+  }
 
-app.use(cors(corsOptions));
-
-// Middleware para parsing
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-
-// Logging
-app.use(morgan('combined'));
-
-// Middleware para validación de JSON
-app.use((err, req, res, next) => {
-    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-        return res.status(400).json({ 
-            error: 'JSON inválido',
-            message: 'El formato del JSON enviado no es válido'
-        });
+  try {
+    // Determine target device token
+    let targetToken = id_dispositivo;
+    if (!targetToken) {
+      const device = db.findDeviceByUser(id_usuario_instagram);
+      targetToken = device?.id_dispositivo;
     }
-    next();
-});
 
-// Ruta de salud del servidor
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'OK', 
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        environment: process.env.NODE_ENV || 'development'
-    });
-});
+    // Save like in DB
+    db.saveLike(id_foto_instagram, id_usuario_instagram, targetToken || null);
 
-// Ruta principal
-app.get('/', (req, res) => {
-    res.json({
-        message: '🏛️ Servidor Lugares Pereira API',
-        version: '1.0.0',
-        endpoints: {
-            'POST /registrar-usuario': 'Registra un dispositivo para notificaciones',
-            'GET /usuarios': 'Lista todos los usuarios registrados',
-            'GET /health': 'Estado del servidor'
+    // Send FCM notification if we have a token and admin initialized
+    if (targetToken && admin.apps?.length) {
+      const message = {
+        token: targetToken,
+        notification: {
+          title: 'Nuevo like en tu foto',
+          body: `Tu foto (${id_foto_instagram}) recibió un like`
         },
-        documentation: 'Ver README.md para más información'
+        data: {
+          screen: 'profile',
+          id_usuario_instagram: String(id_usuario_instagram)
+        }
+      };
+
+      try {
+        const response = await admin.messaging().send(message);
+        console.log('[FCM] Notificación enviada:', response);
+      } catch (err) {
+        console.warn('[FCM] Error enviando notificación:', err.message);
+      }
+    } else {
+      console.log('[FCM] No hay token o Firebase no inicializado; no se envía notificación');
+    }
+
+    return res.json({ ok: true, message: 'Like registrado y notificación procesada' });
+  } catch (err) {
+    console.error('Error procesando like', err);
+    return res.status(500).json({ ok: false, error: 'Error procesando like' });
+  }
+});
+
+// Instagram like endpoint (simulado / opcional)
+// Nota: El API oficial de Instagram no permite likes con el Basic Display API.
+// Si cuentas con permisos del Graph API adecuados, configura INSTAGRAM_ACCESS_TOKEN e IG_MEDIA_LIKES_ENDPOINT.
+app.post('/api/instagram/like', async (req, res) => {
+  const { id_foto_instagram, id_usuario_instagram } = req.body || {};
+  if (!id_foto_instagram || !id_usuario_instagram) {
+    return res.status(400).json({ ok: false, error: 'Faltan campos: id_foto_instagram, id_usuario_instagram' });
+  }
+
+  const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
+  const endpointTemplate = process.env.IG_MEDIA_LIKES_ENDPOINT || 'https://graph.facebook.com/v19.0/%s/likes';
+
+  if (!accessToken) {
+    // Simulación: respondemos éxito sin llamar a Instagram (limitación del API)
+    try {
+      // Save like in DB and notify like in the same way as /api/likes
+      const device = db.findDeviceByUser(id_usuario_instagram);
+      const targetToken = device?.id_dispositivo || null;
+      db.saveLike(id_foto_instagram, id_usuario_instagram, targetToken);
+
+      if (targetToken && admin.apps?.length) {
+        const message = {
+          token: targetToken,
+          notification: {
+            title: 'Nuevo like en tu foto',
+            body: `Tu foto (${id_foto_instagram}) recibió un like`
+          },
+          data: {
+            screen: 'profile',
+            id_usuario_instagram: String(id_usuario_instagram)
+          }
+        };
+        try {
+          const response = await admin.messaging().send(message);
+          console.log('[FCM] Notificación enviada (simulada IG):', response);
+        } catch (err) {
+          console.warn('[FCM] Error enviando notificación (simulada IG):', err.message);
+        }
+      } else {
+        console.log('[FCM] No hay token o Firebase no inicializado; no se envía notificación (simulada IG)');
+      }
+
+      return res.json({ ok: true, simulated: true, message: 'Like simulado en Instagram Graph API, like guardado y notificación procesada' });
+    } catch (err) {
+      console.error('Error procesando like simulado', err);
+      return res.status(500).json({ ok: false, error: 'Error procesando like simulado' });
+    }
+  }
+
+  const endpoint = endpointTemplate.replace('%s', encodeURIComponent(id_foto_instagram));
+
+  try {
+    // Usar fetch nativo de Node 18+
+    const igRes = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ access_token: accessToken })
     });
-});
 
-// ENDPOINT PRINCIPAL: Registrar usuario para notificaciones
-app.post('/registrar-usuario', async (req, res) => {
-    try {
-        const { id_dispositivo, id_usuario_instagram } = req.body;
-
-        // Validación de parámetros
-        if (!id_dispositivo || !id_usuario_instagram) {
-            return res.status(400).json({
-                error: 'Parámetros faltantes',
-                message: 'Se requieren id_dispositivo e id_usuario_instagram',
-                received: { id_dispositivo: !!id_dispositivo, id_usuario_instagram: !!id_usuario_instagram }
-            });
-        }
-
-        // Validación de formato
-        if (typeof id_dispositivo !== 'string' || typeof id_usuario_instagram !== 'string') {
-            return res.status(400).json({
-                error: 'Formato inválido',
-                message: 'Los parámetros deben ser strings'
-            });
-        }
-
-        // Validación de longitud
-        if (id_dispositivo.length < 10 || id_dispositivo.length > 255) {
-            return res.status(400).json({
-                error: 'Token inválido',
-                message: 'El id_dispositivo debe tener entre 10 y 255 caracteres'
-            });
-        }
-
-        if (id_usuario_instagram.length < 1 || id_usuario_instagram.length > 255) {
-            return res.status(400).json({
-                error: 'Usuario inválido',
-                message: 'El id_usuario_instagram debe tener entre 1 y 255 caracteres'
-            });
-        }
-
-        // Registrar en la base de datos
-        const result = await database.registrarUsuario(id_dispositivo, id_usuario_instagram);
-
-        console.log(`✅ Usuario registrado: ${id_usuario_instagram} con token: ${id_dispositivo.substring(0, 20)}...`);
-
-        res.status(200).json({
-            success: true,
-            message: 'Usuario registrado exitosamente para recibir notificaciones',
-            data: {
-                id_dispositivo: id_dispositivo.substring(0, 20) + '...', // Mostrar solo parte del token por seguridad
-                id_usuario_instagram,
-                timestamp: new Date().toISOString()
-            }
-        });
-
-    } catch (error) {
-        console.error('❌ Error al registrar usuario:', error);
-        
-        res.status(500).json({
-            error: 'Error interno del servidor',
-            message: 'No se pudo registrar el usuario',
-            timestamp: new Date().toISOString()
-        });
+    const igData = await igRes.json();
+    if (!igRes.ok) {
+      return res.status(502).json({ ok: false, error: 'Error en Instagram API', detail: igData });
     }
-});
-
-// Endpoint para obtener usuarios registrados (para debugging/admin)
-app.get('/usuarios', async (req, res) => {
-    try {
-        const usuarios = await database.obtenerUsuarios();
-        
-        // Ocultar tokens completos por seguridad
-        const usuariosSeguro = usuarios.map(usuario => ({
-            ...usuario,
-            id_dispositivo: usuario.id_dispositivo.substring(0, 20) + '...'
-        }));
-
-        res.json({
-            success: true,
-            count: usuarios.length,
-            usuarios: usuariosSeguro
-        });
-    } catch (error) {
-        console.error('❌ Error al obtener usuarios:', error);
-        res.status(500).json({
-            error: 'Error interno del servidor',
-            message: 'No se pudieron obtener los usuarios'
-        });
-    }
-});
-
-// Endpoint para obtener tokens (para envío de notificaciones)
-app.get('/tokens', async (req, res) => {
-    try {
-        const tokens = await database.obtenerTokensDispositivos();
-        
-        res.json({
-            success: true,
-            count: tokens.length,
-            message: 'Tokens obtenidos exitosamente'
-            // No devolvemos los tokens por seguridad, solo el conteo
-        });
-    } catch (error) {
-        console.error('❌ Error al obtener tokens:', error);
-        res.status(500).json({
-            error: 'Error interno del servidor',
-            message: 'No se pudieron obtener los tokens'
-        });
-    }
-});
-
-// Manejo de rutas no encontradas
-app.use('*', (req, res) => {
-    res.status(404).json({
-        error: 'Ruta no encontrada',
-        message: `La ruta ${req.method} ${req.originalUrl} no existe`,
-        availableEndpoints: [
-            'GET /',
-            'POST /registrar-usuario',
-            'GET /usuarios',
-            'GET /health'
-        ]
-    });
-});
-
-// Manejo global de errores
-app.use((err, req, res, next) => {
-    console.error('❌ Error no manejado:', err);
     
-    res.status(500).json({
-        error: 'Error interno del servidor',
-        message: process.env.NODE_ENV === 'development' ? err.message : 'Algo salió mal'
-    });
+    // Instagram API call successful — also save like and notify device (if registered)
+    try {
+      const device = db.findDeviceByUser(id_usuario_instagram);
+      const targetToken = device?.id_dispositivo || null;
+      db.saveLike(id_foto_instagram, id_usuario_instagram, targetToken);
+
+      if (targetToken && admin.apps?.length) {
+        const message = {
+          token: targetToken,
+          notification: {
+            title: 'Nuevo like en tu foto',
+            body: `Tu foto (${id_foto_instagram}) recibió un like`
+          },
+          data: {
+            screen: 'profile',
+            id_usuario_instagram: String(id_usuario_instagram)
+          }
+        };
+        try {
+          const response = await admin.messaging().send(message);
+          console.log('[FCM] Notificación enviada (IG):', response);
+        } catch (err) {
+          console.warn('[FCM] Error enviando notificación (IG):', err.message);
+        }
+      } else {
+        console.log('[FCM] No hay token o Firebase no inicializado; no se envía notificación (IG)');
+      }
+    } catch (err) {
+      console.error('Error guardando like o enviando notificación después de IG', err);
+    }
+
+    return res.json({ ok: true, instagram: igData });
+  } catch (err) {
+    console.error('Error llamando Instagram API', err);
+    return res.status(500).json({ ok: false, error: 'Fallo al llamar Instagram API' });
+  }
 });
 
-// Iniciar servidor
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
-    console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`📊 Base de datos: ${process.env.DB_TYPE || 'sqlite'}`);
-    console.log(`🔗 URL: http://localhost:${PORT}`);
+  console.log(`Servidor escuchando en http://localhost:${PORT}`);
 });
-
-// Manejo de cierre graceful
-process.on('SIGINT', () => {
-    console.log('\n🛑 Cerrando servidor...');
-    database.close();
-    process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-    console.log('\n🛑 Cerrando servidor...');
-    database.close();
-    process.exit(0);
-});
-
-module.exports = app;

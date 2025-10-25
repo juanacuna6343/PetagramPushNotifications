@@ -1,36 +1,37 @@
-# Root Gitignore for LugaresPereiraApp
+# Node
+node_modules/
+**/node_modules/
 
-# OS
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env
+.env
+*.env
+
+# Firebase / credentials
+service-account.json
+google-services.json
+
+# SQLite DB
+web-server/db.sqlite
+web-server/db.sqlite-*
+
+# Android build
+**/build/
+**/.gradle/
+.idea/
+*.iml
+
+# OS files
 .DS_Store
 Thumbs.db
 
-# Node / Web Server
-web-server/node_modules/
-web-server/.env
-web-server/.env.local
-web-server/npm-debug.log*
-web-server/yarn-error.log*
-web-server/dist/
-web-server/.cache/
-
-# SQLite database
-web-server/database.sqlite
-
-# Android
-android-app/.gradle/
-android-app/.idea/
-android-app/local.properties
-android-app/app/build/
-android-app/build/
-android-app/*.iml
-android-app/captures/
-android-app/.externalNativeBuild/
-
-# Firebase
-android-app/app/google-services.json
-
-# Logs
-*.log
-
-# Generated docs
-DOCUMENTACION_ENDPOINT.pdf
+# Misc
+.vscode/
+/.classpath
+/.project

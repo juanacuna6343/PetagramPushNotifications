@@ -1,8 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Lugares Pereira</string>
-    <string name="imagen_lugar">Imagen del lugar</string>
-    <string name="default_notification_channel_id">lugares_pereira_notifications</string>
-    <string name="default_notification_channel_name">Lugares Pereira Notifications</string>
-    <string name="fcm_message">FCM Message</string>
+    <string name="app_name">PetagramPush</string>
+    <!-- Cambia esta URL por la de tu servidor (puede ser http://192.168.x.x:3000 en LAN) -->
+    <string name="server_base_url">http://10.0.2.2:3000</string>
 </resources>
