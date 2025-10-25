@@ -1,18 +1,21 @@
 # Petagram Push API y App
 
 Este proyecto implementa:
+
 - Backend Node.js con endpoints para registrar dispositivos, registrar likes y (opcional/simulado) enviar like al API de Instagram.
 - App Android que recibe notificaciones push (FCM) y abre la pantalla de perfil al pulsarlas.
 
 ## Backend (web-server)
 
 ### Requisitos
+
 - Node.js 18+
 - Archivo de credenciales de Firebase Admin (service account JSON) y variable `GOOGLE_APPLICATION_CREDENTIALS` apuntando a ese archivo.
 
 ### Configuración
 
 1. Copia `.env.example` a `.env` y ajusta variables:
+
 ```
 PORT=3000
 DATABASE_PATH=./db.sqlite
@@ -21,6 +24,7 @@ INSTAGRAM_ACCESS_TOKEN= # opcional si tienes permisos de Graph API
 ```
 
 2. Instala dependencias y levanta servidor:
+
 ```
 cd web-server
 npm install
@@ -44,21 +48,24 @@ npm run start
 Este repositorio contiene una API (Node.js + Express) y una app Android de ejemplo para la actividad "Creando, Recibiendo y Actuando Push Notifications".
 
 Resumen:
+
 - Servidor: `web-server/` (Node.js, Express)
 - Base de datos: SQLite (`better-sqlite3`)
 - Notificaciones push: Firebase Cloud Messaging (Firebase Admin SDK)
 - App Android: `android-app/` — recibe notificaciones FCM y abre la pantalla de perfil al pulsarlas
 
 ## Contenido del repo
+
 - `web-server/` — servidor Express, endpoints y base de datos sqlite
 - `android-app/` — código fuente de la app Android (Kotlin)
-- `web-server/DOCUMENTACION_ENDPOINT_SUBMISSION.md` — documentación lista para exportar a PDF
+- `docs/DOCUMENTACION_ENDPOINT_SUBMISSION.md` — documentación lista para exportar a PDF
 
 ---
 
 ## Ejecutar el servidor (web-server)
 
 Requisitos mínimos:
+
 - Node.js 18+
 - (Opcional para FCM) un Service Account JSON de Firebase y la variable de entorno `GOOGLE_APPLICATION_CREDENTIALS` apuntando a ese archivo
 
@@ -113,10 +120,12 @@ Nota de seguridad: nunca subas el `service-account.json` ni tu `.env` al reposit
 ## Ejecutar y probar la app Android (android-app)
 
 Requisitos:
+
 - Android Studio
 - `google-services.json` del proyecto Firebase (añadir en `android-app/app/`)
 
 Pasos rápidos:
+
 1. Abre `android-app` en Android Studio.
 2. Añade `google-services.json` en `android-app/app/` y sincroniza.
 3. Ejecuta la app en un dispositivo físico (recomendado) o emulador con Google Play services.
@@ -150,6 +159,7 @@ Invoke-RestMethod -Uri http://localhost:3000/api/likes -Method Post -Body $body 
 ```
 
 Verifica:
+
 - Que la respuesta sea OK.
 - Que en `web-server/db.sqlite` se inserte la fila en `likes`.
 - Que el dispositivo del usuario reciba la notificación. Al pulsarla, la app debe abrir `ProfileActivity` mostrando el id.
@@ -177,7 +187,7 @@ Verifica:
 ---
 
 Si quieres, puedo:
+
 - Generar el PDF desde el Markdown y agregarlo al repo (si tu entorno lo permite).
 - Preparar un script PowerShell automatizado para la demo (registro + like + verificación).
 - Ayudarte a preparar el README en inglés para publicar en GitHub.
-
