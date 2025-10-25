@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lugares Pereira</string>
+    <string name="imagen_lugar">Imagen del lugar</string>
+    <string name="default_notification_channel_id">lugares_pereira_notifications</string>
+    <string name="default_notification_channel_name">Lugares Pereira Notifications</string>
+    <string name="fcm_message">FCM Message</string>
+</resources>
